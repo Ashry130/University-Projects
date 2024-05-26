@@ -1,0 +1,259 @@
+import tkinter as tk
+from tkinter import simpledialog, messagebox, Scrollbar, Canvas
+import pandas as pd
+import requests
+import matplotlib.pyplot as plt
+from bs4 import BeautifulSoup
+import unittest
+
+
+class SalaryEstimator:
+
+    def __init__(self):
+        self.salary_data = {}
+
+    def estimate_salary(self, job_title):
+        if job_title not in self.salary_data:
+            salary_range = self.scrape_salary_web(job_title)
+            self.salary_data[job_title] = salary_range
+        return self.salary_data.get(job_title)
+
+    def scrape_salary_web(self, job_title):
+        url = f"https://www.indeed.com/cmp/salary/{job_title}"
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, "html.parser")
+        salary_tag = soup.find("span", class_="salary-snippet")
+        if salary_tag:
+            salary_text = salary_tag.text.strip()
+            return salary_text
+        else:
+            return None
+
+
+class Job:
+    def __init__(self, file_path):
+        self.Job_File = pd.read_csv(file_path)
+
+    def search_jobs(self, user_input):
+        jobs = self.Job_File.iloc[:, -8]
+        store_jobs = []
+        usplit = user_input.split()
+        for index, job_title in jobs.items():
+            if isinstance(job_title, str):
+                job_title_split = job_title.lower().split()
+                if any(word in job_title_split for word in usplit):
+                    store_jobs.append((index, job_title))
+        return store_jobs
+
+    def get_job_details(self, index):
+        try:
+            description = self.Job_File.iloc[index, self.Job_File.columns.get_loc("description")]
+            skills = self.Job_File.iloc[index, self.Job_File.columns.get_loc("skills req.")]
+            return description, skills
+        except KeyError:
+            return "Description not available", "Skills not available"
+
+
+class Api():
+    def __init__(self):
+        self.salary_estimator = SalaryEstimator()
+
+    def import_Api(self, user_input):
+        url = "https://jsearch.p.rapidapi.com/search"
+        querystring = {"query": f"{user_input}in canada", "page": "1", "num_pages": "1"}
+        headers = {
+            "X-RapidAPI-Key": "87c59f8ec2msh7527e09512dab20p1f3732jsn68a07ec22861",
+            "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+        }
+        response = requests.get(url, headers=headers, params=querystring)
+        data = response.json()
+
+        if 'data' in data and data['data']:
+            len_data = len(data['data'])
+            num_jobs = simpledialog.askinteger("Number of Jobs",
+                                               f"We found {len_data} jobs. How many do you want to see?")
+            if num_jobs is None or num_jobs <= 0 or num_jobs > len_data:
+                messagebox.showerror("Error", f"Invalid input. Please choose a number between 1 and {len_data}.")
+                return
+
+            job_details = []
+            for job in data['data'][:num_jobs]:
+                job_description = job.get('job_description', 'Description not available')
+                job_apply_link = job.get('job_apply_link', 'Apply link not available')
+                job_city = job.get('job_city', 'City not available')
+                salary_estimate = self.salary_estimator.estimate_salary(job.get('job_title', 'Title not available'))
+
+                job_details.append(f"Title: {job.get('job_title', 'Title not available')}\n"
+                                   f"Description: {job_description}\n"
+                                   f"Salary Estimate: {salary_estimate}\n"
+                                   f"Apply Link: {job_apply_link}\n"
+                                   f"City: {job_city}\n\n")
+
+            display_text = "\n".join(job_details)
+            self.show_scrollable_text("Top Jobs from API", display_text)
+
+            self.plot_demand_graph(data['data'])
+
+    def plot_demand_graph(self, job_data):
+        if job_data:
+            job_titles = [job['job_title'] for job in job_data]  # Extract job titles
+            job_openings_high = [10000, 8000, 12000, 6000, 9000, 4000, 7000, 9000]  # Placeholder data
+
+            plt.figure(figsize=(10, 6))
+            plt.plot(job_titles[:8], job_openings_high, marker='o', color='blue', linestyle='-',
+                     label='Highly Demanded Jobs')
+            plt.xlabel('Occupations')
+            plt.ylabel('Number of Job Openings ')
+            plt.title('Job Openings by Occupation')
+            plt.xticks(rotation=45)
+            plt.legend()
+            plt.grid()
+            plt.tight_layout()
+            plt.show()
+
+    def show_scrollable_text(self, title, text):
+        scrollable_window = tk.Tk()
+        scrollable_window.title(title)
+
+        canvas = Canvas(scrollable_window)
+        scrollbar = Scrollbar(scrollable_window, orient="vertical", command=canvas.yview)
+        text_frame = tk.Frame(canvas)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        canvas.create_window((0, 0), window=text_frame, anchor="nw")
+
+        def configure_frame(event):
+            canvas.configure(scrollregion=canvas.bbox("all"), width=800, height=400)
+
+        text_frame.bind("<Configure>", configure_frame)
+
+        text_label = tk.Label(text_frame, text=text, justify="left", anchor="w", wraplength=750)
+        text_label.pack(fill="both", expand=True)
+
+        scrollable_window.mainloop()
+
+
+class JobSearchApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("Job Search App")
+
+        self.label = tk.Label(master, text="Search For A Job:")
+        self.label.pack()
+
+        self.entry = tk.Entry(master)
+        self.entry.pack()
+
+        self.search_button = tk.Button(master, text="Search My Data", command=self.search_my_data)
+        self.search_button.pack()
+
+        self.api_search_button = tk.Button(master, text="Search at API", command=self.search_at_api)
+        self.api_search_button.pack()
+
+        self.sort_button = tk.Button(master, text="Sort by Title", command=self.bubble_sort)
+        self.sort_button.pack()
+
+        self.results_text = tk.Text(master, height=10, width=50)
+        self.results_text.pack()
+
+        self.select_label = tk.Label(master, text="Enter the number of the job to view details:")
+        self.select_label.pack()
+
+        self.selection_entry = tk.Entry(master)
+        self.selection_entry.pack()
+
+        self.view_button = tk.Button(master, text="View Details", command=self.view_details)
+        self.view_button.pack()
+
+        self.job = Job("D:\\El Gam3a\\CS II\\linkedin_canada2.csv")  # Initialize your Job class instance
+        self.store_jobs = []
+
+        self.api_job = Api()  # Initialize Api class instance
+
+    def search_my_data(self):
+        user_input = self.entry.get().lower()
+        self.store_jobs = self.job.search_jobs(user_input)
+        if self.store_jobs:
+            self.display_jobs()
+        else:
+            messagebox.showinfo("Unavailable", "This job is currently unavailable in our data.")
+
+    def search_at_api(self):
+        user_input = self.entry.get().lower()
+        self.api_job.import_Api(user_input)
+
+    def bubble_sort(self):
+        n = len(self.store_jobs)
+        for i in range(n - 1):
+            for j in range(0, n - i - 1):
+                if self.store_jobs[j][1] > self.store_jobs[j + 1][1]:
+                    self.store_jobs[j], self.store_jobs[j + 1] = self.store_jobs[j + 1], self.store_jobs[j]
+        self.display_jobs()
+
+    def display_jobs(self):
+        self.results_text.delete(1.0, tk.END)
+        for count, job_info in enumerate(self.store_jobs, start=1):
+            index, job_title = job_info
+            self.results_text.insert(tk.END, f"{count} - {job_title}\n")
+
+    def view_details(self):
+        selection = self.selection_entry.get()
+        try:
+            selection_index = int(selection) - 1
+            if 0 <= selection_index < len(self.store_jobs):
+                index, job_title = self.store_jobs[selection_index]
+                description, skills = self.job.get_job_details(int(index))
+                messagebox.showinfo("Job Details",
+                                    f"Title: {job_title}\nDescription: {description}\nSkills Required: {skills}")
+            else:
+                messagebox.showerror("Invalid Selection", "Please enter a valid job number.")
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter a valid number.")
+
+
+class TestJobSearchApp(unittest.TestCase):
+    def setUp(self):
+        # Initialize any necessary objects for testing
+        self.root = tk.Tk()
+        self.app = JobSearchApp(self.root)
+    # Test search_my_data method
+    def test_search_my_data(self):
+        # Simulate user input
+        self.app.entry.insert(tk.END, "software engineer")
+        # Mock job search results
+        self.app.job.search_jobs = lambda user_input: [(0, "Software Engineer")]
+        # Mock display_jobs method
+        self.app.display_jobs = lambda: None
+
+        self.app.search_my_data()
+
+        # Assert that the display_jobs method is called
+        self.assertTrue(self.app.display_jobs)
+
+    # Test search_at_api method
+    def test_search_at_api(self):
+        # Simulate user input
+        self.app.entry.insert(tk.END, "software engineer")
+        self.app.api_job.import_Api = lambda user_input: None
+        self.app.search_at_api()
+        self.assertTrue(self.app.api_job.import_Api)
+    def test_bubble_sort(self):
+        self.app.store_jobs = [(0, "Software Engineer"), (1, "Data Scientist"), (2, "Web Developer")]
+        self.app.bubble_sort()
+        self.assertTrue(self.app.display_jobs)
+
+    def test_view_details(self):
+        self.app.selection_entry.insert(tk.END, "1")
+        self.app.store_jobs = [(0, "Software Engineer")]
+        self.app.job.get_job_details = lambda index: ("Job Description", "Skills")
+        self.app.view_details()
+
+if __name__ == '__main__':
+    unittest.main()
+root = tk.Tk()
+app = JobSearchApp(root)
+root.mainloop()
