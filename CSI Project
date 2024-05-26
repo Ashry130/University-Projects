@@ -1,0 +1,90 @@
+import datetime
+import pandas as pd
+
+
+class Inventory:
+  T_num_stocks = 0
+
+  def __init__(self, file_path):
+    self.file_path = file_path
+    self.stock = pd.read_csv(file_path)
+    self.stock['production_date'] = pd.to_datetime(self.stock['production_date'])
+    self.stock['expiration_date'] = pd.to_datetime(self.stock['expiration_date'])
+    self.stock['Can buy'] = self.stock['Can buy'].astype(bool)
+    self.stock['expired'] = self.stock['expiration_date'] < datetime.datetime.now()
+    self.receipt = []
+    self.stock['quantity'] = self.stock['quantity']
+
+  def add_item(self, item):
+    #This method is used to add an item to the Excel sheet
+    print(f"Adding item: {item}")
+    self.stock = self.stock._append(item, ignore_index=True)
+    Inventory.T_num_stocks+=1
+    self.stock['quantity'] += 0
+
+  def update_item(self, old_bar_code, new_item):
+    # This method is used to update an existing item in the Excel sheet
+    if any(self.stock['bar_code'] == old_bar_code):
+      # Check if an item with the old bar code exists in the DataFrame
+      for key, value in new_item.items():
+        self.stock.loc[self.stock['bar_code'] == old_bar_code, key] = value
+    else:
+      print(f"No item with bar code {old_bar_code} found in inventory.")
+
+  def delete_item(self, bar_code):
+    # This method is used to delete an item in the Excel sheet
+    if not any(self.stock['bar_code'] == bar_code):
+      print("This item does not exist")
+    else:
+      self.stock = self.stock[self.stock['bar_code'] != bar_code]
+
+  def update_offers(self):
+    #This methode is used to update the offer of the item
+    self.stock.loc[self.stock['expired'], 'Can buy'] = False
+
+  def warning_message(self):
+    #This methode is used to warn the user about the number of expired items
+    expired_items = self.stock[self.stock['expired']]
+    if len(expired_items) > 0:
+      print(f"Warning: {len(expired_items)} items have expired.")
+      print(expired_items)
+
+  def take_order(self, item_name=None, bar_code=None):
+    #This methode is used to take orders from customers
+    if self.stock['quantity'].all == 0:
+      print("Item is out of stock.")
+    else:
+      while True:
+        if item_name is None and bar_code is None:
+          print("Please enter either the item name or bar code to take an order.")
+        else:
+          Inventory.T_num_stocks-=1
+          break
+      if item_name is not None:
+        item = self.stock[self.stock['item_name'] == item_name]
+        item = pd.DataFrame(item).iloc[0]
+        print(f"Price: {item['price']}")
+        print(f"Can buy: {item['Can buy']}")
+        self.stock['quantity'] -= 1
+      elif bar_code is not None:
+        item = self.stock[self.stock['bar_code'] == bar_code]
+        item = pd.DataFrame(item).iloc[0]
+        print(f"Price: {item['price']}")
+        print(f"Can buy: {item['Can buy']}")
+        self.stock['quantity'] -= 1
+
+
+  def update_receipt(self, item):
+    #This methode is used to update the reciept with the new order
+    self.receipt.append(item)
+
+  def print_receipt(self):
+    #This methode is used to print the reciept
+    total_price = sum([item['price'] for item in self.receipt])
+    total_savings = sum([item['price'] for item in self.receipt if item['Can buy']])
+    print(f"Total price: {total_price}")
+    print(f"Total savings: {total_savings}")
+
+  def update_stock(self):
+    #This methode is used to update the Excel file
+    self.stock.to_csv(self.file_path, index=False)
